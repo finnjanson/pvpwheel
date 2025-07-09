@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase, dbHelpers } from '../lib/supabase'
 
 interface TelegramUser {
@@ -38,6 +39,21 @@ interface MatchHistoryEntry {
   winnerChance: number
 }
 
+interface Game {
+  id: string;
+  status: string;
+  created_at: string;
+  winner_id?: string | null;
+}
+
+interface GameParticipant {
+  id: string;
+  game_id: string;
+  user_id: string;
+  balance: number;
+  created_at: string;
+}
+
 export const useGameDatabase = () => {
   const [currentGameId, setCurrentGameId] = useState<string | null>(null)
   const [dbPlayers, setDbPlayers] = useState<any[]>([])
@@ -49,6 +65,10 @@ export const useGameDatabase = () => {
   const [gameCountdown, setGameCountdown] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // State for managing subscriptions
+  const [globalSubscription, setGlobalSubscription] = useState<RealtimeChannel | null>(null)
+  const [gameSubscription, setGameSubscription] = useState<RealtimeChannel | null>(null)
 
   // Initialize player from Telegram data
   const initializePlayer = useCallback(async (telegramUser: TelegramUser) => {
@@ -122,8 +142,74 @@ export const useGameDatabase = () => {
     }
   }, [])
 
+  // Participant subscription setup
+  const setupParticipantSubscription = async (gameId: string) => {
+    const participantSubscription = supabase
+      .channel(`game_participants_${gameId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'game_participants',
+          filter: `game_id=eq.${gameId}`
+        },
+        async (payload) => {
+          console.log('Participant state changed:', payload)
+          try {
+            // Force refresh participants on any change
+            await loadGameParticipants(gameId)
+            // Also refresh game state in case it was affected
+            await getCurrentGame()
+          } catch (err) {
+            console.error('Error handling participant change:', err)
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log(`Participant subscription status for game ${gameId}:`, status)
+      })
+
+    return participantSubscription
+  }
+
+  // Type-safe game helper functions
+  const getFreshGames = async (): Promise<Game[]> => {
+    try {
+      const { data: games, error } = await supabase
+        .from('games')
+        .select('*')
+        .eq('status', 'waiting')
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      if (error) throw error
+      return games || []
+    } catch (err) {
+      console.error('Error fetching fresh games:', err)
+      return []
+    }
+  }
+
+  const getCurrentGame = async (): Promise<Game | null> => {
+    if (!currentGameId) return null
+    try {
+      const { data: game, error } = await supabase
+        .from('games')
+        .select('*')
+        .eq('id', currentGameId)
+        .single()
+
+      if (error) throw error
+      return game
+    } catch (err) {
+      console.error('Error fetching current game:', err)
+      return null
+    }
+  }
+
   // Get fresh games data with caching
-  const getFreshGames = async () => {
+  const getFreshGamesData = async () => {
     try {
       const cacheKey = 'current_games'
       const cacheTime = 2000 // 2 seconds cache
@@ -178,7 +264,7 @@ export const useGameDatabase = () => {
   }
 
   // Get or create current game
-  const getCurrentGame = useCallback(async (rollNumber: number) => {
+  const getCurrentGameData = useCallback(async (rollNumber: number) => {
     try {
       console.log('🎯 Loading current game...', rollNumber > 0 ? `Roll #${rollNumber}` : 'Existing game')
       setLoading(true)
@@ -523,6 +609,104 @@ export const useGameDatabase = () => {
     }
   }, [])
 
+  // Error handling and retry utilities
+  const INITIAL_RETRY_DELAY = 1000 // 1 second
+  const MAX_RETRY_DELAY = 10000 // 10 seconds
+  const MAX_RETRIES = 5
+
+  const withRetry = async (operation: () => Promise<any>, context: string) => {
+    let retryCount = 0
+    let delay = INITIAL_RETRY_DELAY
+
+    while (retryCount < MAX_RETRIES) {
+      try {
+        return await operation()
+      } catch (err) {
+        console.error(`Error in ${context} (attempt ${retryCount + 1}/${MAX_RETRIES}):`, err)
+        retryCount++
+        
+        if (retryCount === MAX_RETRIES) {
+          throw new Error(`Failed ${context} after ${MAX_RETRIES} attempts`)
+        }
+
+        await new Promise(resolve => setTimeout(resolve, delay))
+        delay = Math.min(delay * 2, MAX_RETRY_DELAY)
+      }
+    }
+  }
+
+  // Enhanced subscription setup with state management
+  const setupSubscriptions = async () => {
+    await withRetry(async () => {
+      // Clean up existing subscriptions
+      if (globalSubscription) {
+        await supabase.removeChannel(globalSubscription)
+      }
+      if (gameSubscription) {
+        await supabase.removeChannel(gameSubscription)
+      }
+
+      // Global subscription for all waiting games
+      const newGlobalSub = supabase
+        .channel('global_games')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'games' },
+          async (payload) => {
+            console.log('Global game state changed:', payload)
+            await withRetry(async () => {
+              const freshGames = await getFreshGames()
+              if (freshGames?.length > 0) {
+                const latestGame = freshGames[0]
+                console.log('Refreshing to latest game:', latestGame.id)
+                setCurrentGameId(latestGame.id)
+                await loadGameParticipants(latestGame.id)
+              }
+            }, 'refresh game state')
+          }
+        )
+        .subscribe()
+
+      setGlobalSubscription(newGlobalSub)
+
+      // Set up participant subscription if we have a current game
+      if (currentGameId) {
+        const newGameSub = await setupParticipantSubscription(currentGameId)
+        setGameSubscription(newGameSub)
+      }
+
+      // Cleanup function
+      return () => {
+        console.log('Cleaning up subscriptions')
+        if (globalSubscription) {
+          supabase.removeChannel(globalSubscription)
+        }
+        if (gameSubscription) {
+          supabase.removeChannel(gameSubscription)
+        }
+        setGlobalSubscription(null)
+        setGameSubscription(null)
+      }
+    }, 'subscription setup')
+  }
+
+  // Cache management
+  const cache = new Map<string, { data: any; timestamp: number }>()
+  const CACHE_TTL = 5000 // 5 seconds
+
+  const withCache = async (key: string, operation: () => Promise<any>) => {
+    const now = Date.now()
+    const cached = cache.get(key)
+    
+    if (cached && now - cached.timestamp < CACHE_TTL) {
+      return cached.data
+    }
+
+    const data = await operation()
+    cache.set(key, { data, timestamp: now })
+    return data
+  }
+
   // Initialize data on mount
   useEffect(() => {
     const initializeData = async () => {
@@ -573,16 +757,37 @@ export const useGameDatabase = () => {
     }
   }, [currentGameId, loadGameLogs])
 
-  // Real-time subscriptions
+  // Real-time subscriptions and polling setup
   useEffect(() => {
-    console.log('Setting up real-time subscriptions...')
+    console.log('Setting up real-time subscriptions and polling...')
     let retryCount = 0
-    const MAX_RETRIES = 3
+    const MAX_RETRIES = 5
     const RETRY_DELAY = 2000 // 2 seconds
+    const POLL_INTERVAL = 3000 // 3 seconds
+    let pollInterval: NodeJS.Timeout | null = null
+
+    const pollForUpdates = async () => {
+      try {
+        const freshGames = await getFreshGames()
+        if (freshGames?.length > 0) {
+          const latestGame = freshGames[0]
+          if (latestGame.id !== currentGameId) {
+            console.log('Poll detected new game:', latestGame.id)
+            setCurrentGameId(latestGame.id)
+            await loadGameParticipants(latestGame.id)
+          } else if (currentGameId) {
+            // Even if game ID hasn't changed, refresh participants
+            await loadGameParticipants(currentGameId)
+          }
+        }
+      } catch (err) {
+        console.error('Error in polling update:', err)
+      }
+    }
 
     const setupSubscriptions = async () => {
       try {
-        // Global subscription for all waiting games (to detect new games)
+        // Global subscription for all waiting games
         const globalGameSubscription = supabase
           .channel('global_games')
           .on(
@@ -595,36 +800,16 @@ export const useGameDatabase = () => {
             async (payload) => {
               console.log('Global game state changed:', payload)
               try {
-                // Handle different types of game changes
-                switch (payload.eventType) {
-                  case 'INSERT':
-                    // Force immediate refresh on new game
-                    if ((payload.new as any).status === 'waiting') {
-                      console.log('New waiting game detected, force updating state...')
-                      const freshGames = await getFreshGames()
-                      if (freshGames.length > 0) {
-                        setCurrentGameId(freshGames[0].id)
-                        await loadGameParticipants(freshGames[0].id)
-                      }
-                    }
-                    break
-                  case 'UPDATE':
-                    // Force refresh on status change
-                    const newStatus = (payload.new as any).status
-                    const oldStatus = (payload.old as any).status
-                    if (newStatus === 'waiting' || oldStatus === 'waiting') {
-                      console.log('Game status changed, force updating state...')
-                      const freshGames = await getFreshGames()
-                      if (freshGames.length > 0) {
-                        setCurrentGameId(freshGames[0].id)
-                        await loadGameParticipants(freshGames[0].id)
-                      }
-                    }
-                    break
+                // Force immediate refresh regardless of change type
+                const freshGames = await getFreshGames()
+                if (freshGames?.length > 0) {
+                  const latestGame = freshGames[0]
+                  console.log('Refreshing to latest game:', latestGame.id)
+                  setCurrentGameId(latestGame.id)
+                  await loadGameParticipants(latestGame.id)
                 }
               } catch (err) {
                 console.error('Error handling game state change:', err)
-                // Attempt resubscription on error
                 if (retryCount < MAX_RETRIES) {
                   retryCount++
                   setTimeout(setupSubscriptions, RETRY_DELAY)
@@ -635,18 +820,20 @@ export const useGameDatabase = () => {
           .subscribe((status) => {
             console.log('Global game subscription status:', status)
             if (status === 'SUBSCRIBED') {
-              retryCount = 0 // Reset retry count on successful subscription
+              retryCount = 0
+              // Start polling when subscription is active
+              if (!pollInterval) {
+                pollInterval = setInterval(pollForUpdates, POLL_INTERVAL)
+              }
             } else if (status === 'CHANNEL_ERROR' && retryCount < MAX_RETRIES) {
               retryCount++
               setTimeout(setupSubscriptions, RETRY_DELAY)
             }
           })
 
-        // Game-specific subscription
+        // Enhanced game-specific subscription
         let gameSubscription: any = null
         if (currentGameId) {
-          console.log('Setting up game-specific subscription for game:', currentGameId)
-          
           gameSubscription = supabase
             .channel(`game_${currentGameId}`)
             .on(
@@ -659,8 +846,12 @@ export const useGameDatabase = () => {
               },
               async (payload) => {
                 console.log('Game state changed:', payload)
-                // Reload game when game state changes (countdown, status, etc.)
-                await getCurrentGame(0)
+                // Force immediate refresh of game state
+                const freshGames = await getFreshGames()
+                const currentGame = freshGames.find(g => g.id === currentGameId)
+                if (currentGame) {
+                  await loadGameParticipants(currentGame.id)
+                }
               }
             )
             .on(
@@ -671,40 +862,9 @@ export const useGameDatabase = () => {
                 table: 'game_participants',
                 filter: `game_id=eq.${currentGameId}`
               },
-              async (payload) => {
-                console.log('Game participants changed:', payload)
-                // Immediately reload game participants when changes occur
-                try {
-                  const { data: participants, error } = await dbHelpers.getGameParticipants(currentGameId)
-                  if (!error && participants) {
-                    // Transform participants to match Player interface
-                    const transformedPlayers = participants.map((participant: any) => {
-                      const gifts: string[] = []
-                      if (participant.game_participant_gifts) {
-                        participant.game_participant_gifts.forEach((giftEntry: any) => {
-                          const emoji = giftEntry.gifts?.emoji || '🎁'
-                          for (let i = 0; i < giftEntry.quantity; i++) {
-                            gifts.push(emoji)
-                          }
-                        })
-                      }
-                      
-                      return {
-                        id: participant.id,
-                        name: participant.players?.username || participant.players?.first_name || 'Unknown',
-                        balance: participant.balance || 0,
-                        color: participant.color,
-                        gifts: gifts,
-                        giftValue: participant.gift_value || 0,
-                        telegramUser: participant.players
-                      }
-                    })
-                    
-                    setDbPlayers(transformedPlayers)
-                  }
-                } catch (err) {
-                  console.error('Error reloading participants:', err)
-                }
+              async () => {
+                // Immediate participant reload
+                await loadGameParticipants(currentGameId)
               }
             )
             .on(
@@ -715,43 +875,35 @@ export const useGameDatabase = () => {
                 table: 'game_logs',
                 filter: `game_id=eq.${currentGameId}`
               },
-              async (payload) => {
-                console.log('Game logs changed:', payload)
-                // Reload logs when new logs are added
-                await loadGameLogs(currentGameId)
-              }
-            )
-            .on(
-              'postgres_changes',
-              {
-                event: '*',
-                schema: 'public',
-                table: 'game_participant_gifts',
-                filter: `game_participant_id=eq.any(select id from game_participants where game_id=eq.${currentGameId})`
-              },
               async () => {
-                console.log('Game participant gifts changed')
-                // Reload participants when gifts change
-                await loadGameParticipants(currentGameId)
+                await loadGameLogs(currentGameId)
               }
             )
             .subscribe((status) => {
               console.log('Game-specific subscription status:', status)
+              if (status === 'CHANNEL_ERROR') {
+                // Attempt immediate reconnection
+                gameSubscription?.unsubscribe()
+                setupSubscriptions()
+              }
             })
         }
 
         return () => {
-          console.log('Cleaning up real-time subscriptions')
+          console.log('Cleaning up real-time subscriptions and polling')
+          if (pollInterval) {
+            clearInterval(pollInterval)
+          }
           supabase.removeChannel(globalGameSubscription)
           if (gameSubscription) {
             supabase.removeChannel(gameSubscription)
           }
         }
       } catch (err) {
-        console.error('Error setting up subscriptions:', err)
+        console.error('Error in subscription setup:', err)
         if (retryCount < MAX_RETRIES) {
           retryCount++
-          setTimeout(setupSubscriptions, RETRY_DELAY)
+          setTimeout(setupSubscriptions, RETRY_DELAY * retryCount)
         }
       }
     }
