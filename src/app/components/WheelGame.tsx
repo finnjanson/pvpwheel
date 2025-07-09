@@ -390,7 +390,10 @@ export default function WheelGame() {
   };
 
   const spinWheel = useCallback(async () => {
-    if (players.length < 2) {
+    // Use activePlayers for consistency with display
+    const activePlayers = dbPlayers.length > 0 ? dbPlayers : players;
+    
+    if (activePlayers.length < 2) {
       addToLog('⚠️ Need at least 2 players to spin the wheel!', 'info');
       return;
     }
@@ -408,13 +411,13 @@ export default function WheelGame() {
     // Preload avatars before spinning
     await preloadAvatars();
     
-    const totalValue = players.reduce((sum, player) => sum + player.balance + player.giftValue, 0);
+    const totalValue = activePlayers.reduce((sum, player) => sum + player.balance + player.giftValue, 0);
     const randomValue = Math.random() * totalValue;
     
     let currentSum = 0;
     let selectedWinner: Player | null = null;
     
-    for (const player of players) {
+    for (const player of activePlayers) {
       const playerValue = player.balance + player.giftValue;
       currentSum += playerValue;
       if (randomValue <= currentSum) {
@@ -434,8 +437,8 @@ export default function WheelGame() {
     
     spinTimeoutRef.current = setTimeout(async () => {
       if (selectedWinner) {
-        const totalBalance = players.reduce((sum, player) => sum + player.balance, 0);
-        const totalGiftValue = players.reduce((sum, player) => sum + player.giftValue, 0);
+        const totalBalance = activePlayers.reduce((sum, player) => sum + player.balance, 0);
+        const totalGiftValue = activePlayers.reduce((sum, player) => sum + player.giftValue, 0);
         const playerValue = selectedWinner.balance + selectedWinner.giftValue;
         const winnerChance = (playerValue / totalValue) * 100;
         
@@ -464,7 +467,7 @@ export default function WheelGame() {
           id: Date.now().toString(),
           rollNumber: rollNumber,
           timestamp: new Date(),
-          players: [...players], // Create a copy of players array
+          players: [...activePlayers], // Use activePlayers for consistency
           winner: selectedWinner,
           totalPot: totalGiftValue, // Only TON gifts now
           winnerChance: winnerChance
@@ -1075,7 +1078,7 @@ export default function WheelGame() {
         
         <div className="text-xs text-gray-400 font-medium">Total Pot</div>
         <div className="text-lg font-bold text-yellow-400 flex items-center justify-center gap-1">
-          {players.reduce((sum, player) => sum + player.gifts.length, 0)} 🎁 | {totalGiftValue.toFixed(2)} 💎
+          {activePlayers.reduce((sum, player) => sum + player.gifts.length, 0)} 🎁 | {totalGiftValue.toFixed(2)} 💎
         </div>
       </div>
       
@@ -1733,7 +1736,7 @@ export default function WheelGame() {
             <h2 className="text-3xl font-bold text-gray-800 mb-4">Winner!</h2>
             <div className="text-xl text-gray-600 mb-2">{winner.name}</div>
             <div className="text-2xl font-bold text-blue-600 mb-2">
-              Won: {players.reduce((sum, player) => sum + player.giftValue, 0).toFixed(3)} TON
+              Won: {activePlayers.reduce((sum, player) => sum + player.giftValue, 0).toFixed(3)} TON
             </div>
             <button
               onClick={() => setShowWinnerModal(false)}
