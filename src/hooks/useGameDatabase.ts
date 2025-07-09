@@ -315,6 +315,17 @@ export const useGameDatabase = () => {
         })
         
         setDbPlayers(transformedPlayers)
+        
+        // Check if there's an existing countdown for this game
+        const { timeLeft } = await dbHelpers.getGameCountdown(currentGame.id)
+        if (timeLeft !== null && timeLeft > 0) {
+          console.log('✅ Found existing countdown:', timeLeft, 'seconds remaining')
+          setGameCountdown(timeLeft)
+        } else {
+          console.log('ℹ️ No active countdown for this game')
+          setGameCountdown(null)
+        }
+        
         return currentGame
       }
       
@@ -891,6 +902,13 @@ export const useGameDatabase = () => {
                 const currentGame = freshGames.find(g => g.id === currentGameId)
                 if (currentGame) {
                   await loadGameParticipants(currentGame.id)
+                  
+                  // Check for countdown updates
+                  const { timeLeft } = await dbHelpers.getGameCountdown(currentGame.id)
+                  if (timeLeft !== null) {
+                    console.log('Real-time countdown update:', timeLeft, 'seconds remaining')
+                    setGameCountdown(timeLeft)
+                  }
                 }
               }
             )
@@ -990,11 +1008,37 @@ export const useGameDatabase = () => {
 
   // Auto-start countdown when game reaches 2 players
   useEffect(() => {
-    if (currentGameId && dbPlayers.length === 2 && gameCountdown === null) {
-      console.log('Game has 2 players, starting countdown...')
-      startGameCountdown(currentGameId)
+    if (currentGameId && dbPlayers.length === 2) {
+      // Check if countdown is already running
+      const checkAndStartCountdown = async () => {
+        const { timeLeft } = await dbHelpers.getGameCountdown(currentGameId)
+        if (timeLeft === null || timeLeft <= 0) {
+          console.log('Game has 2 players, starting countdown...')
+          startGameCountdown(currentGameId)
+        } else {
+          console.log('Game has 2 players, countdown already running:', timeLeft, 'seconds remaining')
+          setGameCountdown(timeLeft)
+        }
+      }
+      
+      checkAndStartCountdown()
     }
-  }, [currentGameId, dbPlayers.length, gameCountdown, startGameCountdown])
+  }, [currentGameId, dbPlayers.length, startGameCountdown])
+
+  // Initialize countdown on component mount if game already has countdown
+  useEffect(() => {
+    if (currentGameId && gameCountdown === null) {
+      const initializeCountdown = async () => {
+        const { timeLeft } = await dbHelpers.getGameCountdown(currentGameId)
+        if (timeLeft !== null && timeLeft > 0) {
+          console.log('Initializing countdown on mount:', timeLeft, 'seconds remaining')
+          setGameCountdown(timeLeft)
+        }
+      }
+      
+      initializeCountdown()
+    }
+  }, [currentGameId, gameCountdown])
 
   // Countdown timer effect
   useEffect(() => {
