@@ -552,7 +552,35 @@ export const dbHelpers = {
       .limit(limit)
 
     return { data, error }
-  }
+  },
+
+  // Get game participants with related data
+  async getGameParticipants(gameId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('game_participants')
+        .select(`
+          *,
+          players:player_id (*),
+          game_participant_gifts(
+            *,
+            gifts:gift_id (*)
+          )
+        `)
+        .eq('game_id', gameId)
+        .order('created_at', { ascending: true })
+
+      if (error) {
+        console.error('Error fetching game participants:', error)
+        return { error }
+      }
+
+      return { data }
+    } catch (error) {
+      console.error('Error in getGameParticipants:', error)
+      return { error }
+    }
+  },
 }
 
 export default supabase

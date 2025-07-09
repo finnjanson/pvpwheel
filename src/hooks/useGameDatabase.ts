@@ -565,10 +565,10 @@ export const useGameDatabase = () => {
             table: 'games',
             filter: `id=eq.${currentGameId}`
           },
-          (payload) => {
+          async (payload) => {
             console.log('Game state changed:', payload)
             // Reload game when game state changes (countdown, status, etc.)
-            getCurrentGame(0)
+            await getCurrentGame(0)
           }
         )
         .on(
@@ -579,10 +579,40 @@ export const useGameDatabase = () => {
             table: 'game_participants',
             filter: `game_id=eq.${currentGameId}`
           },
-          (payload) => {
+          async (payload) => {
             console.log('Game participants changed:', payload)
-            // Reload game participants when changes occur
-            loadGameParticipants(currentGameId)
+            // Immediately reload game participants when changes occur
+            try {
+              const { data: participants, error } = await dbHelpers.getGameParticipants(currentGameId)
+              if (!error && participants) {
+                // Transform participants to match Player interface
+                const transformedPlayers = participants.map((participant: any) => {
+                  const gifts: string[] = []
+                  if (participant.game_participant_gifts) {
+                    participant.game_participant_gifts.forEach((giftEntry: any) => {
+                      const emoji = giftEntry.gifts?.emoji || '🎁'
+                      for (let i = 0; i < giftEntry.quantity; i++) {
+                        gifts.push(emoji)
+                      }
+                    })
+                  }
+                  
+                  return {
+                    id: participant.id,
+                    name: participant.players?.username || participant.players?.first_name || 'Unknown',
+                    balance: participant.balance || 0,
+                    color: participant.color,
+                    gifts: gifts,
+                    giftValue: participant.gift_value || 0,
+                    telegramUser: participant.players
+                  }
+                })
+                
+                setDbPlayers(transformedPlayers)
+              }
+            } catch (err) {
+              console.error('Error reloading participants:', err)
+            }
           }
         )
         .on(
@@ -593,10 +623,24 @@ export const useGameDatabase = () => {
             table: 'game_logs',
             filter: `game_id=eq.${currentGameId}`
           },
-          (payload) => {
+          async (payload) => {
             console.log('Game logs changed:', payload)
             // Reload logs when new logs are added
-            loadGameLogs(currentGameId)
+            await loadGameLogs(currentGameId)
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'game_participant_gifts',
+            filter: `game_participant_id=eq.any(select id from game_participants where game_id=eq.${currentGameId})`
+          },
+          async () => {
+            console.log('Game participant gifts changed')
+            // Reload participants when gifts change
+            await loadGameParticipants(currentGameId)
           }
         )
         .subscribe((status) => {
