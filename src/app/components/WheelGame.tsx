@@ -1358,7 +1358,18 @@ export default function WheelGame() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-900 pb-16">{/* Reduced padding bottom */}
+    <div className="min-h-screen bg-gray-900 pb-16">
+      {dbLoading && (
+        <div className="fixed inset-0 bg-gray-900/90 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-gray-800 rounded-2xl p-8 shadow-2xl border border-gray-700 max-w-md w-full mx-4">
+            <div className="flex flex-col items-center text-center space-y-4">
+              <div className="animate-spin h-16 w-16 border-4 border-purple-500 rounded-full border-t-transparent"></div>
+              <h3 className="text-xl font-bold text-white">Connecting to database...</h3>
+              <p className="text-gray-400 text-sm">Please wait while we establish a secure connection...</p>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Database Error Banner */}
       {dbError && (
         <div className="bg-red-900/50 border-b border-red-500/50 p-3 text-center">

@@ -54,6 +54,11 @@ interface GameParticipant {
   created_at: string;
 }
 
+interface ConnectionTestResult {
+  success: boolean;
+  error?: Error | string | null;
+}
+
 export const useGameDatabase = () => {
   const [currentGameId, setCurrentGameId] = useState<string | null>(null)
   const [dbPlayers, setDbPlayers] = useState<any[]>([])
@@ -709,38 +714,62 @@ export const useGameDatabase = () => {
 
   // Initialize data on mount
   useEffect(() => {
+    const CONNECTION_TIMEOUT = 10000; // 10 seconds timeout
+    let timeoutId: NodeJS.Timeout;
+    
     const initializeData = async () => {
       try {
-        console.log('🎮 Initializing PvP Wheel database...')
+        console.log('🎮 Initializing PvP Wheel database...');
         
-        // Test database connection first
-        const connectionTest = await dbHelpers.testConnection()
+        // Create a promise that rejects after timeout
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new Error('Database connection timed out'));
+          }, CONNECTION_TIMEOUT);
+        });
+        
+        // Test database connection with timeout
+        const connectionPromise = dbHelpers.testConnection() as Promise<ConnectionTestResult>;
+        const connectionTest = await Promise.race([connectionPromise, timeoutPromise]);
+        
+        clearTimeout(timeoutId);
+        
         if (!connectionTest.success) {
-          console.error('❌ Database connection failed:', connectionTest.error)
+          console.error('❌ Database connection failed:', connectionTest.error);
           const errorMessage = connectionTest.error instanceof Error 
             ? connectionTest.error.message 
-            : 'Unknown database connection error'
-          setError(`Database connection failed: ${errorMessage}`)
-          return
+            : String(connectionTest.error || 'Unknown database connection error');
+          setError(`Database connection failed: ${errorMessage}`);
+          setLoading(false);
+          return;
         }
         
-        console.log('✅ Database connected, loading game data...')
+        console.log('✅ Database connected, loading game data...');
         
-        // Load data in parallel
-        await Promise.all([
+        // Load data in parallel with timeout
+        const dataPromise = Promise.all([
           loadAvailableGifts(),
           loadMatchHistory()
-        ])
+        ]);
         
-        console.log('✅ Game data loaded successfully')
+        await Promise.race([dataPromise, timeoutPromise]);
+        clearTimeout(timeoutId);
+        
+        console.log('✅ Game data loaded successfully');
+        setLoading(false); // Make sure to set loading to false on success
       } catch (err) {
-        console.error('❌ Error during data initialization:', err)
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-        setError(`Failed to initialize application data: ${errorMessage}`)
+        console.error('❌ Error during data initialization:', err);
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        setError(`Failed to initialize application data: ${errorMessage}`);
+        setLoading(false); // Make sure to set loading to false on error
       }
-    }
+    };
+
+    initializeData();
     
-    initializeData()
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [loadAvailableGifts, loadMatchHistory])
 
   // Load player inventory when current player changes
