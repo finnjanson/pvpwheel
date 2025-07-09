@@ -387,11 +387,6 @@ export default function WheelGame() {
     addToLog(`🎉 ${name} joined with $${balance.toLocaleString()}!`, 'join');
     setPlayerName('');
     setPlayerBalance('');
-    
-    // Start countdown when we reach 2 players
-    if (players.length === 1 && currentGameId) {
-      startGameCountdown(currentGameId);
-    }
   };
 
   const spinWheel = useCallback(async () => {
@@ -861,11 +856,6 @@ export default function WheelGame() {
 
       setPlayers(prev => [...prev, newPlayer]);
       addToLog(`🎁 ${name} joined with ${totalGiftValue.toFixed(3)} TON in gifts!`, 'join');
-      
-      // Start countdown when we reach 2 players
-      if (players.length === 1 && currentGameId) {
-        startGameCountdown(currentGameId);
-      }
     }
 
     // Update inventory (reduce quantities)
@@ -947,11 +937,6 @@ export default function WheelGame() {
     setPlayerName('');
     setSelectedGifts([]);
     setShowGiftPopup(false);
-
-    // Start countdown when we reach 2 players
-    if (players.length === 1 && currentGameId) {
-      startGameCountdown(currentGameId);
-    }
   };
 
   const getFilteredHistory = () => {
@@ -1111,16 +1096,23 @@ export default function WheelGame() {
           {/* Center - Timer Status */}
           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-gray-800 rounded-full w-16 h-16 flex items-center justify-center shadow-lg border-4 border-gray-600">
             <div className="text-center">
-              {players.length < 2 ? (
+              {activePlayers.length < 2 ? (
                 <div className="text-xs text-blue-400 font-bold">Waiting</div>
               ) : isSpinning ? (
                 <div className="text-xs text-red-400 font-bold animate-pulse">Live</div>
-              ) : (
+              ) : gameCountdown !== null && gameCountdown > 0 ? (
                 <>
                   <div className="text-xs text-gray-300 font-medium">Next</div>
-                  <div className={`text-sm font-bold ${(gameCountdown ?? 60) <= 10 ? 'text-red-400 animate-pulse' : 'text-purple-400'}`}>
-                    {gameCountdown ?? 60}s
+                  <div className={`text-sm font-bold ${gameCountdown <= 10 ? 'text-red-400 animate-pulse' : 'text-purple-400'}`}>
+                    {gameCountdown}s
                   </div>
+                </>
+              ) : gameCountdown === 0 ? (
+                <div className="text-xs text-orange-400 font-bold animate-pulse">Spinning!</div>
+              ) : (
+                <>
+                  <div className="text-xs text-gray-300 font-medium">Ready</div>
+                  <div className="text-xs text-green-400 font-bold">GO!</div>
                 </>
               )}
             </div>

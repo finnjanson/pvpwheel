@@ -333,6 +333,7 @@ export const useGameDatabase = () => {
         console.log('✅ Created new game:', newGame.id)
         setCurrentGameId(newGame.id)
         setDbPlayers([]) // Empty players for new game
+        setGameCountdown(null) // Reset countdown for new game
         return newGame
       } else {
         console.log('ℹ️ No current game found')
@@ -987,20 +988,51 @@ export const useGameDatabase = () => {
     }
   }, [])
 
+  // Auto-start countdown when game reaches 2 players
+  useEffect(() => {
+    if (currentGameId && dbPlayers.length === 2 && gameCountdown === null) {
+      console.log('Game has 2 players, starting countdown...')
+      startGameCountdown(currentGameId)
+    }
+  }, [currentGameId, dbPlayers.length, gameCountdown, startGameCountdown])
+
   // Countdown timer effect
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null
     
-    if (currentGameId && dbPlayers.length >= 2) {
+    if (currentGameId) {
+      // Initial countdown check
+      const checkCountdown = async () => {
+        const timeLeft = await getGameCountdown(currentGameId)
+        if (timeLeft !== null) {
+          setGameCountdown(timeLeft)
+          if (timeLeft <= 0) {
+            console.log('Countdown reached zero, should trigger spin')
+          }
+        }
+      }
+      
+      // Check immediately
+      checkCountdown()
+      
       // Update countdown every second
       interval = setInterval(async () => {
         const timeLeft = await getGameCountdown(currentGameId)
-        if (timeLeft !== null && timeLeft <= 0) {
-          // Time's up, trigger spin
-          console.log('Countdown reached zero, should trigger spin')
-          setGameCountdown(0)
+        if (timeLeft !== null) {
+          setGameCountdown(timeLeft)
+          if (timeLeft <= 0) {
+            console.log('Countdown reached zero, should trigger spin')
+            // Stop the interval once countdown reaches 0
+            if (interval) {
+              clearInterval(interval)
+              interval = null
+            }
+          }
         }
       }, 1000)
+    } else {
+      // Reset countdown when no game
+      setGameCountdown(null)
     }
     
     return () => {
@@ -1008,7 +1040,7 @@ export const useGameDatabase = () => {
         clearInterval(interval)
       }
     }
-  }, [currentGameId, dbPlayers.length, getGameCountdown])
+  }, [currentGameId, getGameCountdown])
 
   return {
     // State
