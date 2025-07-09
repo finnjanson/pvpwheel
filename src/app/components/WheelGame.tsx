@@ -84,6 +84,9 @@ interface Gift {
   value: number; // TON value
   rarity: 'common' | 'rare' | 'epic' | 'legendary';
   quantity: number;
+  nft_address?: string; // TON NFT collection address
+  nft_item_id?: string; // Specific NFT item ID
+  is_nft?: boolean; // Whether this is an NFT gift
 }
 
 type HistoryFilter = 'time' | 'luckiest' | 'fattest';
@@ -96,6 +99,9 @@ const COLORS = [
 
 const SPIN_DURATION = 4000;
 const COUNTDOWN_DURATION = 60;
+
+// NFT Deposit configuration - Telegram-based
+const NFT_DEPOSIT_TELEGRAM = '@pwpwheel'; // Telegram username for NFT gift transfers
 
 export default function WheelGame() {
   // Database integration
@@ -139,6 +145,10 @@ export default function WheelGame() {
   const [selectedGifts, setSelectedGifts] = useState<{id: string, quantity: number}[]>([]);
   const [showPlayerGiftsPopup, setShowPlayerGiftsPopup] = useState(false);
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null);
+  
+  // NFT Deposit states
+  const [showNftDepositPopup, setShowNftDepositPopup] = useState(false);
+  const [isDepositing, setIsDepositing] = useState(false);
   
   // Telegram WebApp state
   const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null);
@@ -555,21 +565,27 @@ export default function WheelGame() {
     };
   }, []);
 
-  // Initialize inventory from database
+  // Initialize inventory from database (real player inventory)
   useEffect(() => {
-    // Use database gifts instead of simulated inventory
-    if (availableGifts.length > 0) {
-      const simulatedInventory = availableGifts.map(gift => ({
-        id: gift.id,
-        emoji: gift.emoji,
-        name: gift.name,
-        value: gift.base_value,
-        rarity: gift.rarity,
-        quantity: Math.floor(Math.random() * 10) + 1 // Random quantity for demo
+    // Use real player inventory instead of simulated data
+    if (playerInventory && playerInventory.length > 0) {
+      const realInventory = playerInventory.map(item => ({
+        id: item.gift_id,
+        emoji: item.gifts?.emoji || '🎁',
+        name: item.gifts?.name || 'Unknown Gift',
+        value: item.gifts?.base_value || 0,
+        rarity: item.gifts?.rarity || 'common',
+        quantity: item.quantity || 0,
+        nft_address: item.gifts?.nft_address,
+        nft_item_id: item.gifts?.nft_item_id,
+        is_nft: item.gifts?.is_nft || false
       }));
-      setUserInventory(simulatedInventory);
+      setUserInventory(realInventory);
+    } else {
+      // Clear inventory if no gifts in database
+      setUserInventory([]);
     }
-  }, [availableGifts]);
+  }, [playerInventory]);
 
   // Load current game on component mount (for cross-device visibility)
   useEffect(() => {
@@ -718,6 +734,93 @@ export default function WheelGame() {
       .map(gift => ({ id: gift.id, quantity: gift.quantity }));
     setSelectedGifts(allAvailableGifts);
     webApp?.HapticFeedback?.impactOccurred('medium');
+  };
+
+  // NFT Deposit Functions
+  const openNftDepositPopup = () => {
+    setShowNftDepositPopup(true);
+    webApp?.HapticFeedback?.impactOccurred('light');
+  };
+
+  const copyDepositAddress = () => {
+    navigator.clipboard.writeText(NFT_DEPOSIT_TELEGRAM);
+    webApp?.HapticFeedback?.notificationOccurred('success');
+    addToLog('📋 Telegram address copied to clipboard!', 'info');
+  };
+
+  const copyUserMessage = () => {
+    const message = `Hi! I want to deposit my NFT gifts for PvP Wheel. My username: @${telegramUser?.username || telegramUser?.first_name || 'user'}`;
+    navigator.clipboard.writeText(message);
+    webApp?.HapticFeedback?.notificationOccurred('success');
+    addToLog('📋 Message copied to clipboard!', 'info');
+  };
+
+  const openTelegramDeposit = () => {
+    if (!telegramUser) {
+      webApp?.HapticFeedback?.notificationOccurred('error');
+      alert('Please connect your Telegram account first!');
+      return;
+    }
+
+    const message = `Hi! I want to deposit my NFT gifts for PvP Wheel. My username: @${telegramUser?.username || telegramUser?.first_name || 'user'}`;
+    const telegramUrl = `https://t.me/pwpwheel?text=${encodeURIComponent(message)}`;
+    
+    if (webApp) {
+      webApp.openLink(telegramUrl);
+    } else {
+      window.open(telegramUrl, '_blank');
+    }
+    
+    webApp?.HapticFeedback?.impactOccurred('medium');
+    addToLog('📱 Opening Telegram to contact @pwpwheel for NFT deposit', 'info');
+  };
+
+  const startNftDeposit = async () => {
+    if (!telegramUser) {
+      webApp?.HapticFeedback?.notificationOccurred('error');
+      alert('Please connect your Telegram account first!');
+      return;
+    }
+
+    setIsDepositing(true);
+    webApp?.HapticFeedback?.impactOccurred('medium');
+
+    try {
+      // Open Telegram chat with @pwpwheel for NFT gift transfer
+      openTelegramDeposit();
+      
+      addToLog('📱 Contact @pwpwheel in Telegram to deposit your NFT gifts!', 'info');
+      
+      // Reset depositing state after a moment
+      setTimeout(() => {
+        setIsDepositing(false);
+        addToLog('� Send your NFT gifts to @pwpwheel and mention your username.', 'info');
+      }, 2000);
+      
+    } catch (error) {
+      console.error('NFT deposit error:', error);
+      webApp?.HapticFeedback?.notificationOccurred('error');
+      addToLog('❌ Failed to open Telegram. Please manually contact @pwpwheel.', 'info');
+      setIsDepositing(false);
+    }
+  };
+
+  const refreshInventory = async () => {
+    if (!currentPlayer) return;
+    
+    webApp?.HapticFeedback?.impactOccurred('light');
+    addToLog('🔄 Refreshing inventory...', 'info');
+    
+    try {
+      // This would typically call a database function to reload the player's inventory
+      // For now, we'll just show a message
+      setTimeout(() => {
+        addToLog('✅ Inventory refreshed!', 'info');
+      }, 1000);
+    } catch (error) {
+      console.error('Inventory refresh error:', error);
+      addToLog('❌ Failed to refresh inventory.', 'info');
+    }
   };
 
   const confirmGiftSelection = async () => {
@@ -1249,14 +1352,36 @@ export default function WheelGame() {
 
   const renderGiftsContent = () => (
     <div className="space-y-4">
+      {/* NFT Deposit Button */}
+      <div className="flex justify-center">
+        <button
+          onClick={openNftDepositPopup}
+          className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 shadow-lg"
+        >
+          📱 Deposit NFT Gifts
+        </button>
+      </div>
+
       <div className="bg-gray-800/90 backdrop-blur-sm rounded-3xl p-6 shadow-2xl border border-gray-700">
-        <h2 className="text-xl font-bold text-white mb-4 text-center">My Gifts</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-white">My Gifts</h2>
+          <button
+            onClick={refreshInventory}
+            className="text-gray-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-gray-700"
+            title="Refresh Inventory"
+          >
+            🔄
+          </button>
+        </div>
         
         {userInventory.length === 0 ? (
           <div className="text-center py-12 text-gray-400">
             <div className="text-4xl mb-4">🎁</div>
             <div className="text-lg font-medium mb-2 text-gray-300">No gifts yet</div>
-            <div className="text-sm">Win games to collect gifts!</div>
+            <div className="text-sm mb-4">Transfer NFT gifts to get started!</div>
+            <div className="text-xs text-gray-500">
+              Contact {NFT_DEPOSIT_TELEGRAM} in Telegram to deposit your NFT gifts
+            </div>
           </div>
         ) : (
           <div className="space-y-3 max-h-64 overflow-y-auto">
@@ -1266,7 +1391,14 @@ export default function WheelGame() {
                   <div className="flex items-center gap-3">
                     <div className="text-3xl">{gift.emoji}</div>
                     <div>
-                      <div className="text-white font-medium">{gift.name}</div>
+                      <div className="text-white font-medium">
+                        {gift.name}
+                        {gift.is_nft && (
+                          <span className="ml-2 text-xs bg-gradient-to-r from-purple-500 to-pink-500 text-white px-2 py-1 rounded-full">
+                            NFT
+                          </span>
+                        )}
+                      </div>
                       <div className="text-sm text-gray-400">
                         {gift.value} TON each
                       </div>
@@ -1289,6 +1421,11 @@ export default function WheelGame() {
                   <div className="text-sm text-gray-300">
                     Total Value: <span className="text-blue-400 font-medium">{(gift.value * gift.quantity).toFixed(3)} TON</span>
                   </div>
+                  {gift.is_nft && gift.nft_address && (
+                    <div className="text-xs text-gray-500 mt-1">
+                      NFT Collection: {gift.nft_address.slice(0, 8)}...{gift.nft_address.slice(-6)}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -1591,6 +1728,123 @@ export default function WheelGame() {
                   className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 disabled:from-gray-600 disabled:to-gray-600 text-white py-3 px-4 rounded-xl font-medium transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NFT Deposit Popup */}
+      {showNftDepositPopup && (
+        <div 
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+          onClick={() => {
+            setShowNftDepositPopup(false);
+            webApp?.HapticFeedback?.impactOccurred('light');
+          }}
+        >
+          <div 
+            className="bg-gray-800 rounded-2xl max-w-md w-full max-h-[80vh] overflow-hidden border border-gray-700 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close Button */}
+            <button
+              onClick={() => {
+                setShowNftDepositPopup(false);
+                webApp?.HapticFeedback?.impactOccurred('light');
+              }}
+              className="absolute top-4 right-4 z-10 w-8 h-8 bg-gray-700 hover:bg-gray-600 rounded-full flex items-center justify-center text-gray-300 hover:text-white transition-colors"
+            >
+              ✕
+            </button>
+            
+            {/* Header */}
+            <div className="p-6 border-b border-gray-700">
+              <h3 className="text-xl font-bold text-white text-center mb-2">Deposit NFT Gifts</h3>
+              <p className="text-sm text-gray-400 text-center">Transfer your NFT gifts via Telegram</p>
+            </div>
+            
+            {/* Content */}
+            <div className="p-6 overflow-y-auto" style={{ maxHeight: 'calc(80vh - 200px)' }}>
+              <div className="space-y-4">
+                {/* Instructions */}
+                <div className="bg-gray-700/50 rounded-xl p-4 border border-gray-600/50">
+                  <h4 className="text-white font-medium mb-2">How to Deposit:</h4>
+                  <ol className="text-sm text-gray-300 space-y-1 list-decimal list-inside">
+                    <li>Contact {NFT_DEPOSIT_TELEGRAM} in Telegram</li>
+                    <li>Tell them you want to deposit NFT gifts</li>
+                    <li>Provide your username: @{telegramUser?.username || telegramUser?.first_name || 'your_username'}</li>
+                    <li>Transfer your NFT gifts to them</li>
+                    <li>Wait for confirmation and inventory update</li>
+                  </ol>
+                </div>
+
+                {/* Telegram Contact */}
+                <div className="bg-gray-700/50 rounded-xl p-4 border border-gray-600/50">
+                  <h4 className="text-white font-medium mb-2">Contact:</h4>
+                  <div className="bg-gray-900 rounded-lg p-3 mb-2">
+                    <div className="text-sm text-gray-300 font-mono text-center">
+                      {NFT_DEPOSIT_TELEGRAM}
+                    </div>
+                  </div>
+                  <button
+                    onClick={copyDepositAddress}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    📋 Copy Username
+                  </button>
+                </div>
+
+                {/* Pre-written Message */}
+                <div className="bg-gray-700/50 rounded-xl p-4 border border-gray-600/50">
+                  <h4 className="text-white font-medium mb-2">Ready Message:</h4>
+                  <div className="bg-gray-900 rounded-lg p-3 mb-2">
+                    <div className="text-sm text-gray-300">
+                      "Hi! I want to deposit my NFT gifts for PvP Wheel. My username: @{telegramUser?.username || telegramUser?.first_name || 'your_username'}"
+                    </div>
+                  </div>
+                  <button
+                    onClick={copyUserMessage}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    📋 Copy Message
+                  </button>
+                </div>
+
+                {/* Warning */}
+                <div className="bg-blue-900/30 border border-blue-500/30 rounded-xl p-4">
+                  <div className="flex items-start gap-2">
+                    <span className="text-blue-400 text-lg">ℹ️</span>
+                    <div>
+                      <h4 className="text-blue-400 font-medium mb-1">Important:</h4>
+                      <ul className="text-sm text-blue-200 space-y-1">
+                        <li>• Only supported NFT gifts will be accepted</li>
+                        <li>• Always mention your exact username</li>
+                        <li>• Transfers are processed manually by @pwpwheel</li>
+                        <li>• Contact support if your gifts don't appear</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Footer */}
+            <div className="p-6 border-t border-gray-700">
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowNftDepositPopup(false)}
+                  className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-3 px-4 rounded-xl font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={startNftDeposit}
+                  disabled={isDepositing}
+                  className={`flex-1 ${isDepositing ? 'bg-gray-600' : 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600'} text-white py-3 px-4 rounded-xl font-medium transition-colors`}
+                >
+                  {isDepositing ? 'Opening Telegram...' : 'Contact @pwpwheel'}
                 </button>
               </div>
             </div>

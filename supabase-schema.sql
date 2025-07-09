@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS gifts (
     base_value DECIMAL(10, 6) NOT NULL,
     rarity VARCHAR(20) NOT NULL CHECK (rarity IN ('common', 'rare', 'epic', 'legendary')),
     is_active BOOLEAN DEFAULT TRUE,
+    is_nft BOOLEAN DEFAULT FALSE,
+    nft_address VARCHAR(255), -- TON NFT collection address
+    nft_item_id VARCHAR(255), -- Specific NFT item ID (optional)
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -84,6 +87,20 @@ CREATE TABLE IF NOT EXISTS game_participant_gifts (
     total_value DECIMAL(10, 6) NOT NULL
 );
 
+-- NFT deposits tracking table (Telegram-based)
+CREATE TABLE IF NOT EXISTS nft_deposits (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    telegram_username VARCHAR(255) NOT NULL,
+    message_content TEXT,
+    nft_gifts_description TEXT, -- Description of NFT gifts being deposited
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'rejected', 'processed')),
+    processed_by UUID REFERENCES players(id), -- Admin who processed the request
+    processed_at TIMESTAMP WITH TIME ZONE,
+    notes TEXT, -- Admin notes
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Game logs for tracking game events
 CREATE TABLE IF NOT EXISTS game_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -104,24 +121,31 @@ CREATE INDEX IF NOT EXISTS idx_game_participants_player_id ON game_participants(
 CREATE INDEX IF NOT EXISTS idx_player_gifts_player_id ON player_gifts(player_id);
 CREATE INDEX IF NOT EXISTS idx_game_logs_game_id ON game_logs(game_id);
 CREATE INDEX IF NOT EXISTS idx_game_logs_created_at ON game_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_nft_deposits_player_id ON nft_deposits(player_id);
+CREATE INDEX IF NOT EXISTS idx_nft_deposits_telegram_username ON nft_deposits(telegram_username);
+CREATE INDEX IF NOT EXISTS idx_nft_deposits_status ON nft_deposits(status);
+CREATE INDEX IF NOT EXISTS idx_nft_deposits_created_at ON nft_deposits(created_at);
 
 -- Insert default gifts
-INSERT INTO gifts (emoji, name, base_value, rarity) VALUES
-('🎁', 'Gift Box', 0.1, 'common'),
-('💎', 'Diamond', 0.5, 'rare'),
-('⭐', 'Star', 0.3, 'common'),
-('👑', 'Crown', 1.0, 'epic'),
-('🏆', 'Trophy', 2.0, 'legendary'),
-('💰', 'Money Bag', 0.8, 'epic'),
-('🎊', 'Confetti', 0.2, 'common'),
-('🚀', 'Rocket', 1.5, 'legendary'),
-('🎪', 'Circus', 0.4, 'rare'),
-('🌟', 'Golden Star', 0.6, 'rare'),
-('💫', 'Shooting Star', 1.2, 'epic'),
-('🎯', 'Target', 0.7, 'rare'),
-('🎨', 'Art Palette', 0.9, 'epic'),
-('🎭', 'Theater Mask', 0.5, 'rare'),
-('🎪', 'Carnival', 1.8, 'legendary')
+INSERT INTO gifts (emoji, name, base_value, rarity, is_nft, nft_address) VALUES
+('🎁', 'Gift Box', 0.1, 'common', FALSE, NULL),
+('💎', 'Diamond', 0.5, 'rare', FALSE, NULL),
+('⭐', 'Star', 0.3, 'common', FALSE, NULL),
+('👑', 'Crown', 1.0, 'epic', FALSE, NULL),
+('🏆', 'Trophy', 2.0, 'legendary', FALSE, NULL),
+('💰', 'Money Bag', 0.8, 'epic', FALSE, NULL),
+('🎊', 'Confetti', 0.2, 'common', FALSE, NULL),
+('🚀', 'Rocket', 1.5, 'legendary', FALSE, NULL),
+('🎪', 'Circus', 0.4, 'rare', FALSE, NULL),
+('🌟', 'Golden Star', 0.6, 'rare', FALSE, NULL),
+('💫', 'Shooting Star', 1.2, 'epic', FALSE, NULL),
+('🎯', 'Target', 0.7, 'rare', FALSE, NULL),
+('🎨', 'Art Palette', 0.9, 'epic', FALSE, NULL),
+('🎭', 'Theater Mask', 0.5, 'rare', FALSE, NULL),
+('🎪', 'Carnival', 1.8, 'legendary', FALSE, NULL),
+('🦄', 'Unicorn NFT', 5.0, 'legendary', TRUE, 'EQD...example'),
+('🐉', 'Dragon NFT', 3.5, 'epic', TRUE, 'EQD...example'),
+('🎮', 'Gaming NFT', 1.8, 'rare', TRUE, 'EQD...example')
 ON CONFLICT (emoji) DO NOTHING;
 
 -- Function to update player stats after game completion
