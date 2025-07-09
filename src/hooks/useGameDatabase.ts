@@ -122,6 +122,22 @@ export const useGameDatabase = () => {
     }
   }, [])
 
+  // Get fresh games data
+  const getFreshGames = async () => {
+    const { data: games, error } = await supabase
+      .from('games')
+      .select('*')
+      .eq('status', 'waiting')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching fresh games:', error)
+      return []
+    }
+
+    return games
+  }
+
   // Get or create current game
   const getCurrentGame = useCallback(async (rollNumber: number) => {
     try {
@@ -530,18 +546,28 @@ export const useGameDatabase = () => {
         {
           event: '*',
           schema: 'public',
-          table: 'games',
-          filter: 'status=eq.waiting'
+          table: 'games'
         },
-        (payload) => {
+        async (payload) => {
           console.log('Global game state changed:', payload)
-          // If a new game is created or game status changes, reload current game
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            // Reload current game to get the latest waiting game
-            setTimeout(() => {
-              // Use a small delay to ensure the database is consistent
-              getCurrentGame(0)
-            }, 100)
+          // Handle different types of game changes
+          switch (payload.eventType) {
+            case 'INSERT':
+              // New game created - immediately get the game if it's in waiting state
+              if ((payload.new as any).status === 'waiting') {
+                console.log('New waiting game detected, updating state...')
+                await getCurrentGame(0)
+              }
+              break
+            case 'UPDATE':
+              // Game updated - check if it's relevant to current state
+              const newStatus = (payload.new as any).status
+              const oldStatus = (payload.old as any).status
+              if (newStatus === 'waiting' || oldStatus === 'waiting') {
+                console.log('Game status changed, updating state...')
+                await getCurrentGame(0)
+              }
+              break
           }
         }
       )
