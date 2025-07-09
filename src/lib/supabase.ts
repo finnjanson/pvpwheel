@@ -19,7 +19,39 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 })
 
-console.log('✅ Supabase client initialized for PvP Wheel')
+// Initialize Supabase connection with retry logic
+export const initializeSupabase = async () => {
+  const MAX_RETRIES = 3
+  const RETRY_DELAY = 2000 // 2 seconds
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      console.log(`🔄 Attempting to connect to Supabase (attempt ${attempt}/${MAX_RETRIES})...`)
+      
+      // Test the connection with a simple query
+      const { data, error } = await supabase
+        .from('games')
+        .select('id')
+        .limit(1)
+
+      if (error) throw error
+      
+      console.log('✅ Supabase client initialized for PvP Wheel')
+      return true
+    } catch (err) {
+      console.error(`❌ Failed to connect (attempt ${attempt}/${MAX_RETRIES}):`, err)
+      
+      if (attempt < MAX_RETRIES) {
+        console.log(`⏳ Retrying in ${RETRY_DELAY/1000} seconds...`)
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY))
+      } else {
+        console.error('❌ All connection attempts failed')
+        return false
+      }
+    }
+  }
+  return false
+}
 
 // Database types
 export interface Database {

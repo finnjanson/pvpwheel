@@ -1365,7 +1365,15 @@ export default function WheelGame() {
             <div className="flex flex-col items-center text-center space-y-4">
               <div className="animate-spin h-16 w-16 border-4 border-purple-500 rounded-full border-t-transparent"></div>
               <h3 className="text-xl font-bold text-white">Connecting to database...</h3>
-              <p className="text-gray-400 text-sm">Please wait while we establish a secure connection...</p>
+              <p className="text-gray-400 text-sm">
+                This might take a few moments. If it doesn't connect, please refresh the page.
+              </p>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-4 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm transition-colors"
+              >
+                Refresh Page
+              </button>
             </div>
           </div>
         </div>
