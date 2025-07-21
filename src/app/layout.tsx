@@ -1,36 +1,21 @@
-import type { Metadata } from "next";
-import { DM_Sans } from "next/font/google";
-import "./globals.css";
+import type React from "react"
+import { Inter } from "next/font/google"
+import "./globals.css"
+import Script from "next/script"
 
-const dmSans = DM_Sans({
-  variable: "--font-dm-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  display: "swap",
-});
-
-export const metadata: Metadata = {
-  title: "PvP Wheel - Telegram Game",
-  description: "Mobile-first PvP wheel game for Telegram with TON integration",
-};
+const inter = Inter({ subsets: ["latin", "cyrillic"] })
 
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode;
+  children: React.ReactNode
 }>) {
   return (
-    // suppressHydrationWarning is needed because Telegram WebApp script
-    // adds CSS variables to the html element that don't exist during SSR
-    <html lang="en" suppressHydrationWarning>
+    <html lang="ru">
       <head>
-        <script src="https://telegram.org/js/telegram-web-app.js"></script>
+        <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
       </head>
-      <body
-        className={`${dmSans.variable} antialiased font-sans`}
-      >
-        {children}
-      </body>
+      <body className={inter.className}>{children}</body>
     </html>
-  );
+  )
 }
