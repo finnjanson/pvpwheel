@@ -1,9 +1,12 @@
-import WheelGame from './components/WheelGame';
+import WheelGame from "./components/WheelGame"
+import type { Metadata } from "next"
 
-export default function Home() {
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
-      <WheelGame />
-    </div>
-  );
+export const metadata: Metadata = {
+  title: "PvP Wheel",
+  description: "Мини-игра Telegram",
+  manifest: "/manifest.json",
+}
+
+export default function HomePage() {
+  return <WheelGame />
 }
